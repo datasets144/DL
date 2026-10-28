@@ -1,0 +1,98 @@
+
+# 1. Import libraries
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+
+# 2. Create maze
+maze = ["S.#.....", ".##.###.", "....#...", ".####.#.",
+        "......#.", ".####.#G", "....#...", "###...#."]
+
+grid = np.array([list(row) for row in maze])
+S = tuple(np.argwhere(grid == "S")[0])
+G = tuple(np.argwhere(grid == "G")[0])
+
+A = [(-1,0), (1,0), (0,-1), (0,1)]  # Up, Down, Left, Right
+Q = np.zeros((8, 8, 4))
+rewards, steps = [], []
+
+# 3. Q-learning training
+for ep in range(2000):
+    s, total = S, 0
+
+    for step in range(200):
+        a = random.randrange(4) if random.random() < 0.1 else np.argmax(Q[s])
+        r, c = s
+        nr, nc = r + A[a][0], c + A[a][1]
+
+        if not (0 <= nr < 8 and 0 <= nc < 8) or grid[nr, nc] == "#":
+            ns, reward, done = s, -5, False
+        else:
+            ns = (nr, nc)
+            done = ns == G
+            reward = 100 if done else -1
+
+        Q[s][a] += 0.1 * (
+            reward + 0.95 * (0 if done else Q[ns].max()) - Q[s][a]
+        )
+
+        total += reward
+        s = ns
+        if done:
+            break
+
+    rewards.append(total)
+    steps.append(step + 1)
+
+# 4. Find learned path
+s, path, visited = S, [S], {S}
+
+for _ in range(64):
+    a = np.argmax(Q[s])
+    r, c = s
+    nr, nc = r + A[a][0], c + A[a][1]
+
+    if not (0 <= nr < 8 and 0 <= nc < 8) or grid[nr, nc] == "#":
+        break
+
+    s = (nr, nc)
+    if s in visited:
+        break
+
+    path.append(s)
+    visited.add(s)
+
+    if s == G:
+        break
+
+print("Goal reached:", path[-1] == G)
+print("Path:", path)
+
+# 5. Display graphs and learned path
+fig, ax = plt.subplots(1, 3, figsize=(15, 4))
+
+ax[0].plot(rewards)
+ax[0].set_title("Reward per Episode")
+ax[0].set_xlabel("Episode")
+ax[0].set_ylabel("Reward")
+
+ax[1].plot(steps)
+ax[1].set_title("Steps per Episode")
+ax[1].set_xlabel("Episode")
+ax[1].set_ylabel("Steps")
+
+ax[2].imshow(grid == "#", cmap="Greys")
+ax[2].set_title("Learned Maze Path")
+ax[2].set_xticks(range(8))
+ax[2].set_yticks(range(8))
+
+for r in range(8):
+    for c in range(8):
+        if grid[r, c] != "#":
+            label = "S" if (r,c) == S else "G" if (r,c) == G else ""
+            ax[2].text(c, r, label, ha="center", va="center")
+
+y, x = zip(*path)
+ax[2].plot(x, y, "o-", color="orange")
+plt.tight_layout()
+plt.show()

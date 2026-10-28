@@ -1,0 +1,146 @@
+import numpy as np
+from tensorflow.keras.datasets import imdb
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense
+from sklearn.metrics import accuracy_score
+
+# 1. Load dataset
+(x_train, y_train), (x_test, y_test) = imdb.load_data(
+    num_words=10000
+)
+
+# 2. Preprocess data
+x_train = pad_sequences(x_train, maxlen=200)
+x_test = pad_sequences(x_test, maxlen=200)
+
+x_train = x_train.astype("float32") / 10000
+x_test = x_test.astype("float32") / 10000
+
+# 3. Build Autoencoder
+inp = Input(shape=(200,))
+
+# Encoder
+encoded = Dense(128, activation="relu")(inp)
+encoded = Dense(64, activation="relu")(encoded)
+encoded = Dense(32, activation="relu")(encoded)
+
+# Decoder
+decoded = Dense(64, activation="relu")(encoded)
+decoded = Dense(128, activation="relu")(decoded)
+decoded = Dense(200, activation="sigmoid")(decoded)
+
+autoencoder = Model(inp, decoded)
+autoencoder.compile(optimizer="adam", loss="mse")
+
+# 4. Train Autoencoder
+autoencoder.fit(
+    x_train, x_train,
+    epochs=5,
+    batch_size=128,
+    validation_split=0.2
+)
+
+# 5. Extract compressed features
+encoder = Model(inp, encoded)
+X_train = encoder.predict(x_train)
+X_test = encoder.predict(x_test)
+
+# 6. Build classifier
+i = Input(shape=(32,))
+h = Dense(16, activation="relu")(i)
+out = Dense(1, activation="sigmoid")(h)
+
+classifier = Model(i, out)
+classifier.compile(
+    optimizer="adam",
+    loss="binary_crossentropy",
+    metrics=["accuracy"]
+)
+
+# 7. Train classifier
+classifier.fit(
+    X_train, y_train,
+    epochs=5,
+    batch_size=128
+)
+
+# 8. Test the model
+prob = classifier.predict(X_test)
+pred = (prob > 0.5).astype(int).ravel()
+
+print("Accuracy:", accuracy_score(y_test, pred))
+
+#VAE
+
+# 1. Import libraries and MNIST dataset
+import tensorflow as tf
+import numpy as np
+import matplotlib.pyplot as plt
+from tensorflow.keras.layers import Input, Dense, Lambda
+from tensorflow.keras.models import Model
+from tensorflow.keras.datasets import mnist
+
+# 2. Load images, flatten to 784 and normalize
+(x_train, _), (x_test, _) = mnist.load_data()
+x_train = x_train.reshape(-1, 784).astype("float32") / 255.
+x_test = x_test.reshape(-1, 784).astype("float32") / 255.
+
+# 3. Encoder: input -> hidden -> mean and log variance
+inputs = Input(shape=(784,))
+h = Dense(128, activation="relu")(inputs)
+mean = Dense(2)(h)
+log_var = Dense(2)(h)
+
+# 4. Sampling function and latent vector
+def sampling(args):
+    mean, log_var = args
+    eps = tf.random.normal(shape=tf.shape(mean))
+    return mean + tf.exp(0.5 * log_var) * eps
+
+z = Lambda(sampling)([mean, log_var])
+
+# 5. Decoder: latent input -> hidden -> reconstructed image
+latent_input = Input(shape=(2,))
+d = Dense(128, activation="relu")(latent_input)
+output = Dense(784, activation="sigmoid")(d)
+decoder = Model(latent_input, output)
+
+# 6. Reconstruct input and calculate VAE losses
+reconstructed = decoder(z)
+
+class VAELoss(tf.keras.layers.Layer):
+    def call(self, args):
+        original, recon, mean, log_var = args
+        rec_loss = tf.reduce_sum(
+            tf.keras.backend.binary_crossentropy(original, recon), axis=1
+        )
+        kl_loss = -0.5 * tf.reduce_sum(
+            1 + log_var - tf.square(mean) - tf.exp(log_var), axis=1
+        )
+        self.add_loss(tf.reduce_mean(rec_loss + kl_loss))
+        return recon
+
+reconstructed = VAELoss()([inputs, reconstructed, mean, log_var])
+vae = Model(inputs, reconstructed)
+
+# 7. Compile and train VAE
+vae.compile(optimizer="adam")
+vae.fit(x_train, epochs=3, batch_size=128)
+
+# 8. Encode test images and reconstruct them
+encoder = Model(inputs, z)
+z_test = encoder.predict(x_test[:10], verbose=0)
+generated = decoder.predict(z_test, verbose=0)
+
+# 9. Plot original and reconstructed images
+plt.figure(figsize=(10, 3))
+for i in range(10):
+    plt.subplot(2, 10, i + 1)
+    plt.imshow(x_test[i].reshape(28, 28), cmap="gray")
+    plt.axis("off")
+    plt.subplot(2, 10, i + 11)
+    plt.imshow(generated[i].reshape(28, 28), cmap="gray")
+    plt.axis("off")
+plt.show()
+
